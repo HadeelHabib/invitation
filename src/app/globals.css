@@ -1,0 +1,160 @@
+@import url('https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 58, 21, 36;
+  --background-start-rgb: 255, 245, 248;
+  --background-end-rgb: 254, 235, 240;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  direction: rtl;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: #FFF5F8;
+  font-family: 'IBM Plex Sans Arabic', sans-serif;
+  overflow-x: hidden;
+}
+
+@layer utilities {
+  .font-aref {
+    font-family: 'Aref Ruqaa', serif;
+  }
+  .font-ibm {
+    font-family: 'IBM Plex Sans Arabic', sans-serif;
+  }
+  .font-cormorant {
+    font-family: 'Cormorant Garamond', serif;
+  }
+  .text-gold-gradient {
+    background: linear-gradient(135deg, #FFB6C1 0%, #FF4081 45%, #D6336C 80%, #B01F58 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .bg-gold-gradient {
+    background: linear-gradient(135deg, #FFB6C1 0%, #FF4081 45%, #D6336C 80%, #B01F58 100%);
+  }
+  .gold-shimmer {
+    background: linear-gradient(90deg, #FF84A3 0%, #FFD0DE 25%, #FFFFFF 50%, #FFD0DE 75%, #FF84A3 100%);
+    background-size: 200% 100%;
+    animation: shimmer 3s linear infinite;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .envelope-perspective {
+    perspective: 1500px;
+  }
+  .flap-style {
+    transform-origin: top center;
+    transition: transform 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 5;
+    backface-visibility: hidden;
+  }
+  .flap-open {
+    transform: rotateX(-170deg);
+    z-index: 1;
+  }
+  .reveal-on-scroll {
+    opacity: 0;
+    transform: translateY(40px);
+    transition: opacity 0.9s ease-out, transform 0.9s ease-out;
+  }
+  .reveal-on-scroll.revealed {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gold-particle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 215, 230, 1) 0%, rgba(255, 64, 129, 0.6) 60%, transparent 100%);
+  box-shadow: 0 0 10px 2px rgba(214, 51, 108, 0.5);
+  pointer-events: none;
+  animation: floatSlow 7s ease-in-out infinite;
+}
+
+.envelope-shadow {
+  box-shadow:
+    0 30px 60px -15px rgba(130, 14, 63, 0.3),
+    0 18px 36px -18px rgba(130, 14, 63, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(255, 64, 129, 0.3);
+}
+
+.wax-seal-stamp {
+  box-shadow:
+    0 10px 25px -5px rgba(176, 31, 88, 0.6),
+    inset 0 -5px 10px rgba(0, 0, 0, 0.25),
+    inset 0 5px 8px rgba(255, 255, 255, 0.2),
+    0 0 0 2px rgba(214, 51, 108, 0.3);
+}
+
+.gold-border-double {
+  border: 2px solid #D6336C;
+  outline: 1px solid #FF4081;
+  outline-offset: 6px;
+}
+
+.gold-line {
+  background: linear-gradient(90deg, transparent 0%, #FF84A3 20%, #D6336C 50%, #FF84A3 80%, transparent 100%);
+  height: 2px;
+}
+
+.gold-line-short {
+  background: linear-gradient(90deg, transparent 0%, #FF84A3 30%, #D6336C 50%, #FF84A3 70%, transparent 100%);
+  height: 1px;
+}
+
+.ornament-corner {
+  width: 50px;
+  height: 50px;
+  background:
+    radial-gradient(circle at 0 0, transparent 35%, #D6336C 36%, #D6336C 37%, transparent 38%, transparent 42%, #FF4081 43%, #FF4081 44%, transparent 45%),
+    radial-gradient(circle at 100% 100%, transparent 50%, #FF4081 51%, #FF4081 52%, transparent 53%);
+}
+
+.vertical-text {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FEEBF0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #FF4081, #B01F58);
+  border-radius: 10px;
+  border: 2px solid #FEEBF0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #D6336C, #820E3F);
+}
+
+::selection {
+  background: rgba(255, 64, 129, 0.3);
+  color: #3A1524;
+}
