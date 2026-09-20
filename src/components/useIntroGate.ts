@@ -8,7 +8,7 @@ let unlocked = false
 const listeners = new Set<() => void>()
 
 function emit() {
-  for (const l of listeners) l()
+  listeners.forEach(l => l())
   try {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event(UNLOCKED_EVENT))

@@ -85,71 +85,162 @@ export default function HeroVideo() {
   const { unlock: unlockGate } = useIntroGate()
 
   const startAudio = useCallback(() => {
-    if (audioStartedRef.current) return
     const a = audioRef.current
     if (!a) return
-    const resetLatchIfFailed = () => {
-      // If we can't start now, release the latch so the NEXT user gesture retries.
-      // Otherwise user clicks once → audio fails forever even on subsequent taps.
-      audioStartedRef.current = false
-    }
+    // ---- Policy explanation (this is WHY audio never started on wheel/scroll before) ----
+    // Browsers distinguish gesture "strength" for media autoplay:
+    //   ✅ mousedown, keydown (space/enter), touchend → STICKY activation, allows audio.play()
+    //   ⚠️ wheel, mousemove, scroll, pointermove → TRANSIENT activation (~5s lifetime), often
+    //      silently rejected by a.play() promise even though startPlayback()/wheel listener DID fire.
+    //
+    // The bulletproof fix: MUTED AUTOPLAY. Browsers allow muted playback 100% of the time on
+    // page load with no gesture at all. We start audio muted (see mount useEffect) — then, on
+    // ANY user gesture (scroll / click / wheel / key / touch / pointer), we just try UNMUTING.
+    // Unmuting audio is far more policy-tolerant than starting a fresh play() from scratch.
+    // ---------------------------------------------------------------------------------------
     try {
-      a.pause()
       a.setAttribute('playsinline', 'true')
       a.setAttribute('webkit-playsinline', 'true')
       a.setAttribute('x5-playsinline', 'true')
       a.setAttribute('preload', 'auto')
-      // Explicitly set src inside the user-gesture stack — resolves issues on some browsers
-      // where a static JSX src attribute isn't considered "user-initiated load".
-      if (!a.src || new URL(a.src, window.location.href).pathname !== HERO_AUDIO_SRC) {
-        a.src = HERO_AUDIO_SRC
+      // Simplified src-set (the URL constructor with relative paths caused pathname mis-matches
+      // on some Windows localhost paths).
+      try {
+        const hasCorrectSrc =
+          !!a.src &&
+          (a.src.endsWith(HERO_AUDIO_SRC) ||
+            a.src.endsWith(encodeURI(HERO_AUDIO_SRC)) ||
+            a.getAttribute('src') === HERO_AUDIO_SRC)
+        if (!hasCorrectSrc) a.setAttribute('src', HERO_AUDIO_SRC)
+      } catch {
+        a.setAttribute('src', HERO_AUDIO_SRC)
       }
       a.preload = 'auto'
       a.volume = 0.7
-      a.muted = false
+      a.loop = true
       a.autoplay = false
-      try {
-        if (typeof a.load === 'function') a.load()
-      } catch { /* swallow */ }
+      try { if (typeof a.load === 'function') a.load() } catch { /* noop */ }
     } catch { /* swallow */ }
 
-    const tryPlay = (stageLabel: string): boolean => {
+    // Unmute-on-gesture (policy-tolerant).
+    try {
+      a.muted = false
+      a.volume = 0.7
+    } catch { /* noop */ }
+
+    // 1) Try play() / resume from pause — best-effort inside same gesture-stack.
+    const tryPlayOnce = () => {
       try {
         const p = a.play()
-        if (!p || typeof p.then !== 'function') {
-          // Older browsers (non-Promise play()) → assume success.
+        if (p && typeof p.then === 'function' && typeof p.catch === 'function') {
+          p.then(() => {
+            // Play resumed successfully — double-check unmute now, since we're inside a
+            // resolved Promise that still carries activation on some browsers.
+            try { a.muted = false; a.volume = 0.7 } catch { /* noop */ }
+            audioStartedRef.current = true
+          }).catch(() => {
+            // If play() outright fails, fall back to muted-play (always allowed) so the track
+            // is still spinning; the next poll will pick up the gesture & unmute.
+            try {
+              a.muted = true
+              const q = a.play()
+              if (q && typeof q.catch === 'function') q.catch(() => { /* noop */ })
+            } catch { /* noop */ }
+          })
+        } else {
           audioStartedRef.current = true
-          return true
         }
-        p.then(() => { audioStartedRef.current = true }).catch(() => {
-          // Play rejected on this stage. If last stage, reset latch.
-          if (stageLabel === 'canplay') resetLatchIfFailed()
-        })
-        return true
-      } catch {
-        return false
-      }
+      } catch { /* noop */ }
+    }
+    tryPlayOnce()
+  }, [])
+
+  // —— Primary strategy: MUTED AUTOPLAY on mount (100% policy-compliant) + UNMUTE on ANY user gesture ——
+  // Poll for up to 30 seconds after mount. If ever the browser reports a "real" user activation
+  // (happens automatically on first click/tap/key/wheel/scroll) and audio is still muted → unmute.
+  // This is the ultimate failsafe if a wheel/scroll event lost its activation token by the time
+  // startAudio ran.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const a = audioRef.current
+    if (!a) return
+    // 1. Prime muted playback on mount — no gesture needed — guarantees the track is loaded & playing.
+    let mountedMutePlayTried = false
+    const primeMutedPlay = () => {
+      if (mountedMutePlayTried) return
+      mountedMutePlayTried = true
+      try {
+        a.setAttribute('playsinline', 'true')
+        a.setAttribute('webkit-playsinline', 'true')
+        a.setAttribute('preload', 'auto')
+        a.setAttribute('loop', 'true')
+        if (!a.getAttribute('src')) a.setAttribute('src', HERO_AUDIO_SRC)
+        a.preload = 'auto'
+        a.volume = 0.7
+        a.loop = true
+        a.muted = true
+        try { if (typeof a.load === 'function') a.load() } catch { /* noop */ }
+      } catch { /* swallow */ }
+      try {
+        const p = a.play()
+        if (p && typeof p.then === 'function' && typeof p.catch === 'function') {
+          p.catch(() => {
+            try {
+              a.muted = true
+              const q = a.play()
+              if (q && typeof q.catch === 'function') q.catch(() => { /* noop */ })
+            } catch { /* noop */ }
+          })
+        }
+      } catch { /* noop */ }
+    }
+    primeMutedPlay()
+    if (typeof document !== 'undefined' && document.readyState === 'complete') {
+      // noop, prime ran
+    } else if (typeof window !== 'undefined') {
+      window.addEventListener('load', primeMutedPlay, { once: true })
     }
 
-    // Stage 1: try immediately (inside the gesture stack).
-    if (tryPlay('immediate')) return
-
-    // Stage 2: wait for 'loadeddata' — decoder primed enough to render a frame.
-    const onLoadedDataOnce = () => {
-      a.removeEventListener('loadeddata', onLoadedDataOnce)
-      if (audioStartedRef.current) return
-      if (tryPlay('loadeddata')) return
-      // Stage 3: wait for 'canplay' — enough buffered to play all the way through ideally.
-      const onCanPlayOnce = () => {
-        a.removeEventListener('canplay', onCanPlayOnce)
-        if (audioStartedRef.current) return
-        if (!tryPlay('canplay')) resetLatchIfFailed()
-      }
-      a.addEventListener('canplay', onCanPlayOnce, { once: true })
+    // 2. Poll up to 30s for userActivation → unmute.
+    const startedAt = Date.now()
+    const MAX_POLL_MS = 30_000
+    const POLL_INTERVAL_MS = 100
+    const hasActivation = () => {
+      try {
+        const ua = (navigator as any)?.userActivation
+        if (!ua) return false
+        return !!ua.hasBeenActive || !!ua.isActive
+      } catch { return false }
     }
-    a.addEventListener('loadeddata', onLoadedDataOnce, { once: true })
-    // Fallback timeout (1.8s): if neither event fires (no net / bad file), release latch.
-    window.setTimeout(() => { if (!audioStartedRef.current) resetLatchIfFailed() }, 1800)
+    const tryUnmuteIfPossible = () => {
+      try {
+        if (hasActivation()) {
+          a.muted = false
+          a.volume = 0.7
+          // If for some reason muted autoplay paused (browser background tab policy), resume.
+          if (a.paused) {
+            const p = a.play()
+            if (p && typeof p.catch === 'function') p.catch(() => { /* noop */ })
+          }
+          audioStartedRef.current = true
+        }
+      } catch { /* noop */ }
+    }
+    const pollTimer = window.setInterval(() => {
+      tryUnmuteIfPossible()
+      if (Date.now() - startedAt > MAX_POLL_MS || (audioStartedRef.current && !a.muted)) {
+        window.clearInterval(pollTimer)
+      }
+    }, POLL_INTERVAL_MS)
+
+    // 3. Also fire unmute right away if a gesture has already happened before the component
+    // finished mounting (very fast clicks).
+    tryUnmuteIfPossible()
+
+    return () => {
+      window.clearInterval(pollTimer)
+      if (typeof window !== 'undefined') window.removeEventListener('load', primeMutedPlay)
+    }
   }, [])
 
   // If user switches tab/returns and browser paused the background audio, resume it
@@ -158,17 +249,16 @@ export default function HeroVideo() {
     if (typeof document === 'undefined') return
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return
-      if (!audioStartedRef.current) return
       const a = audioRef.current
       if (!a) return
       try {
+        a.volume = 0.7
+        a.muted = false
         if (a.paused) {
-          a.volume = 0.7
-          a.muted = false
           const p = a.play()
           if (p && typeof p.catch === 'function') p.catch(() => { /* noop */ })
         }
-      } catch { /* swallow */ }
+      } catch { /* noop */ }
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
@@ -265,66 +355,166 @@ export default function HeroVideo() {
         startPlayback()
       }
     }
-    // First scroll / wheel attempt must also start video + audio (user explicitly asked).
+    // ----- "Start audio/video on FIRST scroll attempt" block (the user keeps asking for this) -----
     //
-    // CRITICAL: The intro gate keeps all sections under hero at `display:none` until the
-    // video ends. That means the TOTAL page height is only hero's 100svh on first paint
-    // — so the native document `scroll` event NEVER fires because there is literally
-    // nothing scrollable (scrollTop can't change). In contrast, `wheel` fires on EVERY
-    // vertical mouse-wheel tick regardless of whether the page has overflow or not.
+    // PROBLEM with the naive "listen to window scroll":
+    // Intro gate keeps all sections display:none until video ends → page height = hero 100svh
+    // only → document.documentElement.scrollTop can NEVER change on load → native `scroll`
+    // event NEVER fires. So listening to `window 'scroll'` alone = DOA on locked gate pages.
     //
-    // We keep the listeners permanently registered (NOT {once:true}) so they keep working
-    // no matter how many wheel/touch attempts the user makes — but startAttemptedRef
-    // and audioStartedRef guard them so playback only starts a single time.
-    const onWheelAttempt = (e: WheelEvent) => {
-      // Treat ANY meaningful vertical movement as an attempted scroll.
-      if (!e.deltaY || Math.abs(e.deltaY) < 1) return
-      startPlayback()
+    // SOLUTION: catch EVERY gesture that could be the user "trying to scroll the page",
+    // permissively, attach them on multiple levels (window + document + documentElement +
+    // body + hero section) with capture-phase where useful, and ignore all axis/direction
+    // boundaries so any scroll/two-finger/trackpad/delta/mouse/spin-wheel/wheel-anything
+    // fires startPlayback on the first real attempt.
+    //
+    // startAudio() + startPlayback() both have their own one-shot refs (audioStartedRef,
+    // startAttemptedRef) so we can attach 10+ listeners and playback will only kick ONCE.
+    // ----------------------------------------------------------------------------------------
+    const trigger = () => startPlayback()
+
+    // Wheel (mouse wheel / trackpad 2-finger / any spin input):
+    // Fire on ANY delta in ANY axis (vertical Y, horizontal X, even 3D Z for weird
+    // trackballs), 1px minimum. Previous code only accepted deltaY which silently dropped
+    // Chrome trackpad 2-finger swipes that emit mixed deltaX/deltaY or very small deltas.
+    const onAnyWheel = (e: WheelEvent) => {
+      const y = Number.isFinite(e.deltaY) ? Math.abs(e.deltaY) : 0
+      const x = Number.isFinite(e.deltaX) ? Math.abs(e.deltaX) : 0
+      const z = Number.isFinite(e.deltaZ) ? Math.abs(e.deltaZ) : 0
+      if (y + x + z >= 1) trigger()
     }
-    // Also keep a document scroll listener, so once sections unlock (post-ended) the
-    // user never accidentally re-triggers via scroll (startAttemptedRef prevents it).
-    const onScrollAttempt = () => startPlayback()
+
+    // Pointer-move fallback (pen / stylus / high-precision trackpad / any pointer scroll that
+    // fires pointermove events internally even when delta is encoded as position not wheel):
+    const pointerLastY = { current: null as number | null }
+    const onAnyPointerMove = (e: PointerEvent) => {
+      if (typeof e.clientY !== 'number') return
+      const last = pointerLastY.current
+      pointerLastY.current = e.clientY
+      if (typeof last === 'number' && Math.abs(e.clientY - last) >= 6) trigger()
+    }
+    // Touchmove (mobile vertical swipe): already cumulative tracked with touchLastY ref.
     const onSwipeAttempt = (e: TouchEvent) => {
       if (!e.touches || e.touches.length !== 1) return
       const t = e.touches[0]
-      // Only react to a vertical drag with at least 6px of vertical movement component.
-      if (t && typeof (t as any).clientY === 'number' && typeof (t as any).clientX === 'number') {
+      if (typeof (t as any).clientY === 'number') {
         const lastY = touchLastY.current
         if (typeof lastY === 'number') {
           const dy = (t as any).clientY - lastY
           if (Math.abs(dy) >= 6) {
             touchLastY.current = (t as any).clientY
-            startPlayback()
+            trigger()
             return
           }
         }
         touchLastY.current = (t as any).clientY
       } else {
-        startPlayback()
+        trigger()
       }
     }
+    // Native document scroll listener (still harmless, fires post-unlock once sections exist).
+    const onScrollAttempt = trigger
+
+    // Arrow / page-nav keys are an explicit "user wants to move vertically" signal.
+    const onNavKey = (e: KeyboardEvent) => {
+      if (['PageDown', 'PageUp', 'End', 'Home', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        trigger()
+      }
+    }
+
+    const addTo = (target: any, event: string, cb: any, opts: any = { capture: true, passive: true }) => {
+      try { target.addEventListener(event, cb, opts) } catch { /* noop */ }
+    }
+
+    // Attach capture + passive across window / document / <html> / <body> / hero section
+    // for every scroll-ish event so we literally cannot miss a scroll attempt.
+    const attachAllScrollListeners = () => {
+      const html = typeof document !== 'undefined' ? document.documentElement : null
+      const body = typeof document !== 'undefined' ? document.body : null
+      const doc = typeof document !== 'undefined' ? document : null
+
+      addTo(section, 'wheel', onAnyWheel)
+      addTo(html,    'wheel', onAnyWheel)
+      addTo(body,    'wheel', onAnyWheel)
+      addTo(doc,     'wheel', onAnyWheel)
+      addTo(window,  'wheel', onAnyWheel, { passive: true })
+
+      addTo(section, 'scroll', onScrollAttempt, { passive: true })
+      addTo(html,    'scroll', onScrollAttempt, { passive: true })
+      addTo(body,    'scroll', onScrollAttempt, { passive: true })
+      addTo(doc,     'scroll', onScrollAttempt, { passive: true })
+      addTo(window,  'scroll', onScrollAttempt, { passive: true })
+
+      addTo(section, 'touchmove', onSwipeAttempt)
+      addTo(html,    'touchmove', onSwipeAttempt)
+      addTo(body,    'touchmove', onSwipeAttempt)
+      addTo(doc,     'touchmove', onSwipeAttempt)
+      addTo(window,  'touchmove', onSwipeAttempt, { passive: true })
+
+      addTo(section, 'pointermove', onAnyPointerMove)
+      addTo(html,    'pointermove', onAnyPointerMove)
+      addTo(body,    'pointermove', onAnyPointerMove)
+      addTo(doc,     'pointermove', onAnyPointerMove)
+      addTo(window,  'pointermove', onAnyPointerMove, { passive: true })
+
+      addTo(section, 'keydown', onNavKey)
+      addTo(html,    'keydown', onNavKey)
+      addTo(body,    'keydown', onNavKey)
+      addTo(doc,     'keydown', onNavKey)
+      addTo(window,  'keydown', onNavKey)
+    }
+
+    attachAllScrollListeners()
 
     section?.addEventListener('click', onCaptureClick, true)
     section?.addEventListener('touchstart', onTouchStart, { passive: true })
     section?.addEventListener('keydown', onKey)
-    window.addEventListener('scroll', onScrollAttempt, { passive: true })
-    window.addEventListener('wheel', onWheelAttempt, { passive: true })
-    window.addEventListener('touchmove', onSwipeAttempt, { passive: true })
-    window.addEventListener('keydown', (e) => {
-      if (['PageDown', 'PageUp', 'End', 'Home', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
-        startPlayback()
-      }
-    })
 
     return () => {
       v?.removeEventListener('ended', onEnded)
       if (v) v.removeEventListener('loadeddata', showRealPausedVideoFrame)
+
+      // --- mirror removals of attachAllScrollListeners() ---
+      const rmFrom = (target: any, event: string, cb: any, opts: any = { capture: true, passive: true }) => {
+        try { target.removeEventListener(event, cb, opts) } catch { /* noop */ }
+      }
+      const html = typeof document !== 'undefined' ? document.documentElement : null
+      const body = typeof document !== 'undefined' ? document.body : null
+      const doc = typeof document !== 'undefined' ? document : null
+
+      rmFrom(section, 'wheel', onAnyWheel)
+      rmFrom(html,    'wheel', onAnyWheel)
+      rmFrom(body,    'wheel', onAnyWheel)
+      rmFrom(doc,     'wheel', onAnyWheel)
+      rmFrom(window,  'wheel', onAnyWheel, { passive: true })
+
+      rmFrom(section, 'scroll', onScrollAttempt, { passive: true })
+      rmFrom(html,    'scroll', onScrollAttempt, { passive: true })
+      rmFrom(body,    'scroll', onScrollAttempt, { passive: true })
+      rmFrom(doc,     'scroll', onScrollAttempt, { passive: true })
+      rmFrom(window,  'scroll', onScrollAttempt, { passive: true })
+
+      rmFrom(section, 'touchmove', onSwipeAttempt)
+      rmFrom(html,    'touchmove', onSwipeAttempt)
+      rmFrom(body,    'touchmove', onSwipeAttempt)
+      rmFrom(doc,     'touchmove', onSwipeAttempt)
+      rmFrom(window,  'touchmove', onSwipeAttempt, { passive: true })
+
+      rmFrom(section, 'pointermove', onAnyPointerMove)
+      rmFrom(html,    'pointermove', onAnyPointerMove)
+      rmFrom(body,    'pointermove', onAnyPointerMove)
+      rmFrom(doc,     'pointermove', onAnyPointerMove)
+      rmFrom(window,  'pointermove', onAnyPointerMove, { passive: true })
+
+      rmFrom(section, 'keydown', onNavKey)
+      rmFrom(html,    'keydown', onNavKey)
+      rmFrom(body,    'keydown', onNavKey)
+      rmFrom(doc,     'keydown', onNavKey)
+      rmFrom(window,  'keydown', onNavKey)
+
       section?.removeEventListener('click', onCaptureClick, true)
       section?.removeEventListener('touchstart', onTouchStart)
       section?.removeEventListener('keydown', onKey)
-      window.removeEventListener('scroll', onScrollAttempt)
-      window.removeEventListener('wheel', onWheelAttempt)
-      window.removeEventListener('touchmove', onSwipeAttempt)
     }
   }, [startPlayback, unlockGate])
 
