@@ -84,167 +84,103 @@ export default function HeroVideo() {
   const touchLastY = useRef<number | null>(null)
   const { unlock: unlockGate } = useIntroGate()
 
-  const startAudio = useCallback(() => {
+  // ---- Audio behaviour (EXACTLY user requirement, Arabic):
+  //        "بالنسبة للصوت في بداية التحميل لا يوجد صوت ، بعد اول محاولة تمرير او نقر رح يبدأ
+  //         الصوت ويستمر للاخر"
+  //
+  // Translated implementation rule (we MUST obey this literally, no muted-autoplay workarounds):
+  //   Rule 1: page load → audio COMPLETELY silent/paused (not even muted-play running in bg)
+  //   Rule 2: first click OR first scroll/scroll-attempt gesture → audio starts (unmuted, audible)
+  //   Rule 3: audio continues looped until user leaves site
+  //
+  // Why previous attempts failed (policy):
+  //   - wheel / scroll / pointermove = TRANSIENT activation (~5s, often rejected for play())
+  //   - click / pointerdown / touchstart / keydown = STICKY activation (always accepted)
+  // Strategy: try IMMEDIATELY during the gesture-stack on every trigger. If the gesture is
+  // too weak → install capture-phase ONCE listeners for the 4 sticky events; first sticky
+  // gesture → audio.play() → listeners self-remove via {once:true}. That covers:
+  //   "first scroll attempt failed, user naturally clicks/taps anywhere next → audio plays".
+  // -------------------------------------------------------------------------------------------
+  const audioPendingGestureRef = useRef(false)
+
+  const tryStartAudioOnce = useCallback(() => {
     const a = audioRef.current
     if (!a) return
-    // ---- Policy explanation (this is WHY audio never started on wheel/scroll before) ----
-    // Browsers distinguish gesture "strength" for media autoplay:
-    //   ✅ mousedown, keydown (space/enter), touchend → STICKY activation, allows audio.play()
-    //   ⚠️ wheel, mousemove, scroll, pointermove → TRANSIENT activation (~5s lifetime), often
-    //      silently rejected by a.play() promise even though startPlayback()/wheel listener DID fire.
-    //
-    // The bulletproof fix: MUTED AUTOPLAY. Browsers allow muted playback 100% of the time on
-    // page load with no gesture at all. We start audio muted (see mount useEffect) — then, on
-    // ANY user gesture (scroll / click / wheel / key / touch / pointer), we just try UNMUTING.
-    // Unmuting audio is far more policy-tolerant than starting a fresh play() from scratch.
-    // ---------------------------------------------------------------------------------------
+    if (audioStartedRef.current) return
     try {
       a.setAttribute('playsinline', 'true')
       a.setAttribute('webkit-playsinline', 'true')
       a.setAttribute('x5-playsinline', 'true')
       a.setAttribute('preload', 'auto')
-      // Simplified src-set (the URL constructor with relative paths caused pathname mis-matches
-      // on some Windows localhost paths).
+      a.setAttribute('loop', 'true')
+      // Use <source type="audio/mp4"> children instead of src="" for better mp4-in-audio
+      // compatibility: some browsers silently skip src-set on <audio> for non-mp3/wav.
+      // We still fall back to src here for preload/load safety.
       try {
-        const hasCorrectSrc =
-          !!a.src &&
-          (a.src.endsWith(HERO_AUDIO_SRC) ||
-            a.src.endsWith(encodeURI(HERO_AUDIO_SRC)) ||
-            a.getAttribute('src') === HERO_AUDIO_SRC)
-        if (!hasCorrectSrc) a.setAttribute('src', HERO_AUDIO_SRC)
+        const attr = a.getAttribute('src')
+        if (attr !== HERO_AUDIO_SRC) a.setAttribute('src', HERO_AUDIO_SRC)
       } catch {
         a.setAttribute('src', HERO_AUDIO_SRC)
       }
       a.preload = 'auto'
       a.volume = 0.7
       a.loop = true
+      a.muted = false
       a.autoplay = false
       try { if (typeof a.load === 'function') a.load() } catch { /* noop */ }
     } catch { /* swallow */ }
-
-    // Unmute-on-gesture (policy-tolerant).
     try {
-      a.muted = false
-      a.volume = 0.7
-    } catch { /* noop */ }
-
-    // 1) Try play() / resume from pause — best-effort inside same gesture-stack.
-    const tryPlayOnce = () => {
-      try {
-        const p = a.play()
-        if (p && typeof p.then === 'function' && typeof p.catch === 'function') {
-          p.then(() => {
-            // Play resumed successfully — double-check unmute now, since we're inside a
-            // resolved Promise that still carries activation on some browsers.
-            try { a.muted = false; a.volume = 0.7 } catch { /* noop */ }
-            audioStartedRef.current = true
-          }).catch(() => {
-            // If play() outright fails, fall back to muted-play (always allowed) so the track
-            // is still spinning; the next poll will pick up the gesture & unmute.
-            try {
-              a.muted = true
-              const q = a.play()
-              if (q && typeof q.catch === 'function') q.catch(() => { /* noop */ })
-            } catch { /* noop */ }
-          })
-        } else {
-          audioStartedRef.current = true
-        }
-      } catch { /* noop */ }
-    }
-    tryPlayOnce()
-  }, [])
-
-  // —— Primary strategy: MUTED AUTOPLAY on mount (100% policy-compliant) + UNMUTE on ANY user gesture ——
-  // Poll for up to 30 seconds after mount. If ever the browser reports a "real" user activation
-  // (happens automatically on first click/tap/key/wheel/scroll) and audio is still muted → unmute.
-  // This is the ultimate failsafe if a wheel/scroll event lost its activation token by the time
-  // startAudio ran.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const a = audioRef.current
-    if (!a) return
-    // 1. Prime muted playback on mount — no gesture needed — guarantees the track is loaded & playing.
-    let mountedMutePlayTried = false
-    const primeMutedPlay = () => {
-      if (mountedMutePlayTried) return
-      mountedMutePlayTried = true
-      try {
-        a.setAttribute('playsinline', 'true')
-        a.setAttribute('webkit-playsinline', 'true')
-        a.setAttribute('preload', 'auto')
-        a.setAttribute('loop', 'true')
-        if (!a.getAttribute('src')) a.setAttribute('src', HERO_AUDIO_SRC)
-        a.preload = 'auto'
-        a.volume = 0.7
-        a.loop = true
-        a.muted = true
-        try { if (typeof a.load === 'function') a.load() } catch { /* noop */ }
-      } catch { /* swallow */ }
-      try {
-        const p = a.play()
-        if (p && typeof p.then === 'function' && typeof p.catch === 'function') {
-          p.catch(() => {
-            try {
-              a.muted = true
-              const q = a.play()
-              if (q && typeof q.catch === 'function') q.catch(() => { /* noop */ })
-            } catch { /* noop */ }
-          })
-        }
-      } catch { /* noop */ }
-    }
-    primeMutedPlay()
-    if (typeof document !== 'undefined' && document.readyState === 'complete') {
-      // noop, prime ran
-    } else if (typeof window !== 'undefined') {
-      window.addEventListener('load', primeMutedPlay, { once: true })
-    }
-
-    // 2. Poll up to 30s for userActivation → unmute.
-    const startedAt = Date.now()
-    const MAX_POLL_MS = 30_000
-    const POLL_INTERVAL_MS = 100
-    const hasActivation = () => {
-      try {
-        const ua = (navigator as any)?.userActivation
-        if (!ua) return false
-        return !!ua.hasBeenActive || !!ua.isActive
-      } catch { return false }
-    }
-    const tryUnmuteIfPossible = () => {
-      try {
-        if (hasActivation()) {
-          a.muted = false
-          a.volume = 0.7
-          // If for some reason muted autoplay paused (browser background tab policy), resume.
-          if (a.paused) {
-            const p = a.play()
-            if (p && typeof p.catch === 'function') p.catch(() => { /* noop */ })
-          }
-          audioStartedRef.current = true
-        }
-      } catch { /* noop */ }
-    }
-    const pollTimer = window.setInterval(() => {
-      tryUnmuteIfPossible()
-      if (Date.now() - startedAt > MAX_POLL_MS || (audioStartedRef.current && !a.muted)) {
-        window.clearInterval(pollTimer)
+      const p = a.play()
+      if (!p || typeof p.then !== 'function') {
+        audioStartedRef.current = true
+        return
       }
-    }, POLL_INTERVAL_MS)
-
-    // 3. Also fire unmute right away if a gesture has already happened before the component
-    // finished mounting (very fast clicks).
-    tryUnmuteIfPossible()
-
-    return () => {
-      window.clearInterval(pollTimer)
-      if (typeof window !== 'undefined') window.removeEventListener('load', primeMutedPlay)
+      p.then(() => {
+        try { a.muted = false; a.volume = 0.7 } catch { /* noop */ }
+        audioStartedRef.current = true
+        audioPendingGestureRef.current = false
+      }).catch(() => {
+        audioStartedRef.current = false
+        audioPendingGestureRef.current = true
+      })
+    } catch {
+      audioStartedRef.current = false
+      audioPendingGestureRef.current = true
     }
   }, [])
 
-  // If user switches tab/returns and browser paused the background audio, resume it
-  // the moment the page becomes visible again. Never start audio on an invisible tab.
+  const installStickyGestureFallbackOnce = useCallback(() => {
+    if (typeof document === 'undefined') return
+    const install = (evt: string) => {
+      try {
+        document.addEventListener(
+          evt,
+          () => {
+            if (audioStartedRef.current) return
+            tryStartAudioOnce()
+          },
+          { capture: true, once: true, passive: true }
+        )
+      } catch { /* noop */ }
+    }
+    // 4 sticky gestures that browsers always grant full activation for:
+    install('click')
+    install('pointerdown')
+    install('touchstart')
+    install('keydown')
+  }, [tryStartAudioOnce])
+
+  const startAudio = useCallback(() => {
+    tryStartAudioOnce()
+    // If audio promise rejected because this is a weak scroll/wheel gesture, arm the
+    // one-shot sticky-gesture fallbacks so the NEXT click/touch/key/press plays it.
+    setTimeout(() => {
+      if (audioPendingGestureRef.current) installStickyGestureFallbackOnce()
+    }, 150)
+  }, [tryStartAudioOnce, installStickyGestureFallbackOnce])
+
+  // If user switches tab then returns → if audio started already resume it; if not, try
+  // one more time inside this returning-visitor gesture.
   useEffect(() => {
     if (typeof document === 'undefined') return
     const onVisibility = () => {
@@ -254,15 +190,18 @@ export default function HeroVideo() {
       try {
         a.volume = 0.7
         a.muted = false
-        if (a.paused) {
+        if (audioStartedRef.current && a.paused) {
           const p = a.play()
           if (p && typeof p.catch === 'function') p.catch(() => { /* noop */ })
+        } else if (!audioStartedRef.current) {
+          // Returning user counts as activation on some browsers; try once more.
+          tryStartAudioOnce()
         }
       } catch { /* noop */ }
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [])
+  }, [tryStartAudioOnce])
 
   const startPlayback = useCallback(() => {
     startAudio()
@@ -658,7 +597,12 @@ export default function HeroVideo() {
 
       {/* Background audio — starts ONLY on first user click/scroll (never autoplay).
           Keep it 1x1 painted off-screen (NOT display:none) because Safari iOS
-          sometimes refuses audio playback on display:none elements. */}
+          sometimes refuses audio playback on display:none elements.
+
+          Use 2 <source> children with explicit MIME types instead of src="" alone:
+          Chrome correctly plays audio/mp4 (MPEG-4 container w/ AAC) — some older browsers
+          fall back gracefully if we declare the type. We also keep src="" on the parent
+          as a safety fallback so load() inside startAudio still picks up the file. */}
       <audio
         ref={audioRef}
         src={HERO_AUDIO_SRC}
@@ -667,9 +611,14 @@ export default function HeroVideo() {
         autoPlay={false}
         controls={false}
         playsInline
+        crossOrigin="anonymous"
         className="fixed top-[-9999px] left-[-9999px] w-[1px] h-[1px] opacity-0 pointer-events-none overflow-hidden"
         style={{ visibility: 'visible' }}
-      />
+      >
+        <source src={HERO_AUDIO_SRC} type="audio/mp4" />
+        <source src={HERO_AUDIO_SRC} type="audio/m4a" />
+        <source src={HERO_AUDIO_SRC} type="audio/aac" />
+      </audio>
     </section>
   )
 }
