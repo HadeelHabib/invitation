@@ -91,7 +91,7 @@ export default function FormalInvitation() {
               </p>
 
               <p className="text-2xl sm:text-3xl md:text-[30px] text-ink-mid leading-snug">
-                ونورته بناته
+وابنته نورة
               </p>
 
               {/* Date, time, venue */}

@@ -55,14 +55,13 @@ export default function AboutCouple() {
               {/* double gold ring border */}
               <div className="w-52 h-52 sm:w-64 sm:h-64 md:w-72 md:h-72 rounded-full p-[3px] bg-gold-gradient shadow-gold-lg group-hover:scale-[1.02] transition-transform duration-500">
                 <div className="w-full h-full rounded-full p-[5px] bg-gradient-to-b from-cream-50 to-cream-100">
-                  <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-gold-100 to-gold-200/70 flex items-center justify-center">
-                    {/* Silhouette placeholder */}
-                    <svg viewBox="0 0 200 200" className="w-3/4 h-3/4 text-gold-500/80">
-                      <circle cx="100" cy="72" r="36" fill="currentColor" opacity="0.85" />
-                      <path d="M100 112 C62 112 36 138 28 176 L172 176 C164 138 138 112 100 112 Z" fill="currentColor" opacity="0.85" />
-                      <path d="M80 60 C82 50 92 42 100 42 C108 42 118 50 120 60" stroke="#B01F58" strokeWidth="2" fill="none" strokeLinecap="round" />
-                      <path d="M78 82 C85 80 92 82 100 82 C108 82 115 80 122 82" stroke="#FFF5F8" strokeWidth="1.5" fill="none" strokeLinecap="round" opacity="0.6" />
-                    </svg>
+                  <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-gold-100 to-gold-200/70">
+                    <img
+                      src="/assets/yousef.png"
+                      alt="يوسف — العريس"
+                      loading="eager"
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                 </div>
               </div>
@@ -121,15 +120,13 @@ export default function AboutCouple() {
             <div className="relative mb-6 group">
               <div className="w-52 h-52 sm:w-64 sm:h-64 md:w-72 md:h-72 rounded-full p-[3px] bg-gold-gradient shadow-gold-lg group-hover:scale-[1.02] transition-transform duration-500">
                 <div className="w-full h-full rounded-full p-[5px] bg-gradient-to-b from-cream-50 to-cream-100">
-                  <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-gold-100 to-gold-200/70 flex items-center justify-center">
-                    <svg viewBox="0 0 200 200" className="w-3/4 h-3/4 text-gold-500/80">
-                      <circle cx="100" cy="72" r="34" fill="currentColor" opacity="0.85" />
-                      <path d="M100 108 C62 108 34 138 26 176 L174 176 C166 138 138 108 100 108 Z" fill="currentColor" opacity="0.85" />
-                      <path d="M80 50 C80 42 90 36 100 36 C110 36 120 42 120 50 L124 52 C118 54 114 60 110 62" stroke="#D6336C" strokeWidth="1.5" fill="none" />
-                      <path d="M68 58 C74 54 82 56 88 58" stroke="#B01F58" strokeWidth="1.2" fill="none" strokeLinecap="round" />
-                      <path d="M132 58 C126 54 118 56 112 58" stroke="#B01F58" strokeWidth="1.2" fill="none" strokeLinecap="round" />
-                      <path d="M100 112 C96 116 96 122 100 126 C104 122 104 116 100 112 Z" fill="#FF4081" />
-                    </svg>
+                  <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-gold-100 to-gold-200/70">
+                    <img
+                      src="/assets/nora.png"
+                      alt="نورة — العروس"
+                      loading="eager"
+                      className="w-full h-full object-contain"
+                    />
                   </div>
                 </div>
               </div>

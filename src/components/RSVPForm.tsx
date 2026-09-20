@@ -6,6 +6,51 @@ import { Check, Minus, Plus, Send, Sparkles } from 'lucide-react'
 
 type Attendance = 'yes' | 'no' | 'maybe'
 
+export const RSVP_BLESSINGS_KEY = 'invitation.rsvp_blessings_v1'
+
+export type RSVPPersistedBlessing = {
+  id: string
+  name: string
+  message: string
+  createdAt: number
+  messageOnly: false
+}
+
+function readPersistedBlessings(): RSVPPersistedBlessing[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(RSVP_BLESSINGS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (x) =>
+        !!x &&
+        typeof (x as RSVPPersistedBlessing).name === 'string' &&
+        typeof (x as RSVPPersistedBlessing).message === 'string' &&
+        typeof (x as RSVPPersistedBlessing).id === 'string'
+    ) as RSVPPersistedBlessing[]
+  } catch {
+    return []
+  }
+}
+
+function pushPersistedBlessing(payload: RSVPPersistedBlessing) {
+  if (typeof window === 'undefined') return
+  const list = readPersistedBlessings()
+  list.push(payload)
+  try {
+    window.localStorage.setItem(RSVP_BLESSINGS_KEY, JSON.stringify(list))
+    try {
+      window.dispatchEvent(new Event('invitation:blessings-updated'))
+    } catch {
+      /* noop */
+    }
+  } catch {
+    /* noop */
+  }
+}
+
 export default function RSVPForm() {
   const { ref, revealed } = useReveal<HTMLDivElement>()
 
@@ -17,6 +62,7 @@ export default function RSVPForm() {
   })
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [showMessageRequired, setShowMessageRequired] = useState(false)
 
   const attendanceOptions: Array<{ key: Attendance; label: string; icon: string }> = [
     { key: 'yes', label: 'بإذن الله', icon: '🤍' },
@@ -27,11 +73,40 @@ export default function RSVPForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (submitting) return
+
+    const trimmedName = form.name.trim()
+    const trimmedMessage = form.message.trim()
+    if (!trimmedName) return
+
+    if (!trimmedMessage) {
+      setShowMessageRequired(true)
+      return
+    }
+    setShowMessageRequired(false)
+
     setSubmitting(true)
+    // Persist the blessing first so guestbook can pick it up immediately
+    const newId = `rsvp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+    pushPersistedBlessing({
+      id: newId,
+      name: trimmedName,
+      message: trimmedMessage,
+      createdAt: Date.now(),
+      messageOnly: false,
+    })
     // Simulate network
     await new Promise((r) => setTimeout(r, 900))
     setSubmitting(false)
     setSubmitted(true)
+    // Scroll to the GuestbookWall (قائمة المباركات) after confirm
+    if (typeof window !== 'undefined') {
+      const target = document.getElementById('guestbook')
+      if (target) {
+        window.requestAnimationFrame(() => {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      }
+    }
   }
 
   return (
@@ -93,16 +168,6 @@ export default function RSVPForm() {
                 <p className="font-ibm text-ink-muted text-sm sm:text-base leading-relaxed max-w-md mx-auto animate-[fadeUp_0.8s_ease-out_0.3s_both]">
                   تم استلام تأكيدكم بنجاح. إن شاء الله نراكم على خير وسلامة في ليلة العمر
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSubmitted(false)
-                    setForm({ name: '', attendance: 'yes', guests: 1, message: '' })
-                  }}
-                  className="mt-10 inline-flex items-center gap-2 px-7 py-3 rounded-full border-2 border-gold-400 text-gold-700 font-aref text-lg hover:bg-gold-gradient hover:text-cream-50 hover:border-gold-500 transition-all duration-300 animate-[fadeUp_0.8s_ease-out_0.4s_both]"
-                >
-                  تعديل الرد
-                </button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="relative space-y-6 sm:space-y-7">
@@ -192,14 +257,29 @@ export default function RSVPForm() {
                   <label className="block mb-3 font-aref text-xl sm:text-2xl text-ink-dark">
                     رسالة للعروسين{' '}
                     <span className="text-ink-muted text-base sm:text-lg font-ibm">💌</span>
+                    <span className="text-rose-500"> *</span>
                   </label>
                   <textarea
                     rows={4}
+                    required
                     value={form.message}
-                    onChange={(e) => setForm({ ...form, message: e.target.value })}
+                    onChange={(e) => {
+                      if (showMessageRequired && e.target.value.trim())
+                        setShowMessageRequired(false)
+                      setForm({ ...form, message: e.target.value })
+                    }}
                     placeholder="بارك الله لكما وبارك عليكما وجمع بينكما في خير..."
-                    className="w-full px-5 sm:px-6 py-4 rounded-[14px] border-2 border-gold-300/70 bg-cream-50 focus:bg-white focus:border-gold-500 focus:ring-4 focus:ring-gold-300/30 outline-none transition-all text-ink-dark font-ibm text-base sm:text-lg placeholder:text-ink-muted/60 resize-none leading-relaxed"
+                    className={`w-full px-5 sm:px-6 py-4 rounded-[14px] border-2 bg-cream-50 focus:bg-white focus:ring-4 focus:ring-gold-300/30 outline-none transition-all text-ink-dark font-ibm text-base sm:text-lg placeholder:text-ink-muted/60 resize-none leading-relaxed ${
+                      showMessageRequired
+                        ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200/40'
+                        : 'border-gold-300/70 focus:border-gold-500'
+                    }`}
                   />
+                  {showMessageRequired && (
+                    <p className="mt-2 text-sm font-ibm text-rose-600">
+                      اكتب رسالة مختصرة للعروسين حتى تظهر مع باقي المباركات ❤
+                    </p>
+                  )}
                 </div>
 
                 {/* Submit */}

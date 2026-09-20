@@ -1,11 +1,7 @@
 import Link from 'next/link'
-import { Heart, ArrowUp } from 'lucide-react'
+import { Heart } from 'lucide-react'
 
 export default function WeddingFooter() {
-  const scrollTop = () => {
-    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
   return (
     <footer
       id="footer"
@@ -77,15 +73,6 @@ export default function WeddingFooter() {
           </p>
         </div>
       </div>
-
-      {/* Floating scroll top */}
-      <button
-        onClick={scrollTop}
-        className="fixed bottom-5 left-5 sm:bottom-7 sm:left-7 z-40 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gold-gradient text-cream-50 shadow-gold hover:shadow-gold-lg hover:scale-110 transition-all duration-300 flex items-center justify-center"
-        aria-label="العودة للأعلى"
-      >
-        <ArrowUp className="w-5 h-5 sm:w-6 sm:h-6" strokeWidth={2.5} />
-      </button>
     </footer>
   )
 }
